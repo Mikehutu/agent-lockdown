@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-lockdown"
+version = "0.4.0"
+description = "Read-only security audit and 1-click global .env secret lock for Linux/macOS hosts and all AI coding agents running on them."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "Mike Huttunen" }]
+keywords = ["security", "audit", "cve", "ai-agents", "llm", "mcp", "secrets", "hooks", "skills", "sarif"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+]
+dependencies = []
+
+[project.scripts]
+agent-lockdown = "agent_lockdown.cli:main"
+asa = "agent_lockdown.cli:main"
+agent-security-audit = "agent_lockdown.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Mikehutu/agent-lockdown"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
