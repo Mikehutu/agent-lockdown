@@ -355,6 +355,18 @@ class AuditTests(unittest.TestCase):
         cfg_after = core.read_text(os.path.join(self.home, ".hermes", "config.yaml"))
         self.assertIn("- agent-lockdown", cfg_after)
 
+    def test_bundled_package_data_matches_repo_sources(self):
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        bundled = os.path.join(repo_root, "src", "agent_lockdown", "bundled")
+        self.assertEqual(
+            core.read_text(os.path.join(repo_root, "hermes", "__init__.py")),
+            core.read_text(os.path.join(bundled, "hermes", "__init__.py")),
+        )
+        self.assertEqual(
+            core.read_text(os.path.join(repo_root, "skills", "agent-lockdown", "SKILL.md")),
+            core.read_text(os.path.join(bundled, "SKILL.md")),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

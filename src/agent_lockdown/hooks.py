@@ -703,6 +703,10 @@ def agent_env_protection_status(home: str) -> tuple[list[str], list[str]]:
     return protected, unprotected
 
 
+def _bundled_path(*parts: str) -> str:
+    return os.path.join(os.path.dirname(__file__), "bundled", *parts)
+
+
 def _install_hermes_plugin(home: str, dry_run: bool = False) -> list[str]:
     """Install/update the Hermes agent-lockdown plugin with pre_tool_call .env guard."""
     modified = []
@@ -711,18 +715,16 @@ def _install_hermes_plugin(home: str, dry_run: bool = False) -> list[str]:
     init_path = os.path.join(plugin_dir, "__init__.py")
     yaml_path = os.path.join(plugin_dir, "plugin.yaml")
 
+    bundled_init = _bundled_path("hermes", "__init__.py")
+    bundled_yaml = _bundled_path("hermes", "plugin.yaml")
     repo_hermes = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "hermes"))
-    src_init = os.path.join(repo_hermes, "__init__.py")
-    src_yaml = os.path.join(repo_hermes, "plugin.yaml")
+    src_init = bundled_init if os.path.isfile(bundled_init) else os.path.join(repo_hermes, "__init__.py")
+    src_yaml = bundled_yaml if os.path.isfile(bundled_yaml) else os.path.join(repo_hermes, "plugin.yaml")
 
     if not dry_run:
         os.makedirs(plugin_dir, exist_ok=True)
-        if os.path.isfile(src_init) and os.path.isfile(src_yaml):
-            shutil.copyfile(src_init, init_path)
-            shutil.copyfile(src_yaml, yaml_path)
-        else:
-            _write_text_file(init_path, _FALLBACK_HERMES_INIT)
-            _write_text_file(yaml_path, _FALLBACK_HERMES_YAML)
+        shutil.copyfile(src_init, init_path)
+        shutil.copyfile(src_yaml, yaml_path)
         if os.path.isdir(legacy_dir):
             shutil.rmtree(legacy_dir, ignore_errors=True)
     modified.append(init_path)
@@ -762,233 +764,6 @@ def _install_hermes_plugin(home: str, dry_run: bool = False) -> list[str]:
         except OSError:
             pass
     return modified
-
-
-_FALLBACK_HERMES_YAML = """name: agent-lockdown
-version: 0.4.0
-description: Read-only security audit of the host and every AI coding agent installed on it, with pre_tool_call .env protection hook and permission-gated global hook installer.
-author: Mike Huttunen
-license: MIT
-manifest_version: 2
-requires_hermes: ">=0.21.5"
-provides_tools:
-  - agent_lockdown
-provides_hooks:
-  - pre_tool_call
-tags: [security, audit, cve, agents, mcp, secrets, hooks]
-"""
-
-_FALLBACK_HERMES_INIT = '''"""Hermes plugin: expose agent-lockdown as a tool + native pre_tool_call .env guard.
-
-Self-contained stdlib module so it loads cleanly inside Hermes's own Python environment
-while invoking the installed `agent-lockdown` / `asa` binary for full audits.
-"""
-
-from __future__ import annotations
-
-import json
-import os
-import re
-import shutil
-import subprocess
-import sys
-
-TOOL = "agent_lockdown"
-
-VALID_LAYERS = frozenset({
-    "host-python", "host-node", "docker-containers", "docker-images",
-    "manifests", "ports", "os-packages", "ssh", "semgrep", "secrets",
-    "venvs", "cve-now", "agent-config", "agent-history", "agent-rules",
-    "supply-chain",
-})
-
-VALID_HOOK_MODES = frozenset({"deny", "ask"})
-
-SAFE_ENV_SUFFIXES = (
-    ".example", ".sample", ".template", ".dist",
-    ".defaults", ".schema", ".md", ".txt", ".rst",
-)
-CODE_ENV_IDENTIFIERS = frozenset({
-    "process.env", "meta.env", "import.meta.env", "deno.env",
-    "bun.env", "cypress.env", "window.env", "global.env",
-    "globalthis.env", "os.env", "sys.env", "ctx.env", "self.env",
-})
-_ENV_TOKEN_RE = re.compile(
-    r"""(?:^|[\\s\'"`(=:<|,])((?:[A-Za-z0-9_./~*-]*/)?(?:\\.env(?:\\.[A-Za-z0-9_.*-]+|\\*)?|[A-Za-z0-9_.-]+\\.env))(?=$|[\\s\'"`);>|,&])""",
-    re.I,
-)
-_SAFE_GIT_CMD_RE = re.compile(
-    r"^\\s*(?:git\\s+(?:-[A-Za-z]\\s+\\S+\\s+)*(?:check-ignore|rm\\s+--cached|status|add\\s+\\.gitignore|commit|log)\\b|gh\\s+(?:repo|pr|issue|release)\\b|(?:asa|agent-lockdown|agent-security-audit)\\b)",
-    re.I,
-)
-
-SCHEMA = {
-    "name": TOOL,
-    "description": (
-        "Read-only security audit of the host and every AI coding agent installed "
-        "(hooks, MCP servers, keys in agent history, prompt injection, supply chain). "
-        "Returns JSON with findings and a summary. Never modifies anything during an audit. "
-        "If unprotected agents are reported, ask the user for permission first, then call "
-        "with install_env_hook=true and user_approved=true to install the global .env guard."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "root": {"type": "string", "description": "Project directory to scan. Defaults to the current directory."},
-            "layer": {"type": "string", "enum": sorted(VALID_LAYERS), "description": "Run a single layer instead of all 16."},
-            "agents_only": {"type": "boolean", "description": "Fast mode: run only the 4 AI-agent layers."},
-            "quick": {"type": "boolean", "description": "Skip slow checks (venv audit, long git history)."},
-            "offline": {"type": "boolean", "description": "Skip the cve.now network feed."},
-            "redact_paths": {"type": "boolean", "description": "Replace $HOME with ~ and omit hostname in JSON output."},
-            "install_env_hook": {"type": "boolean", "description": "Install the global .env protection hook across detected agents (MUST ask the user for permission first and set user_approved=true)."},
-            "install_skill": {"type": "boolean", "description": "Install the agent-lockdown SKILL.md into every detected agent's global skills folder."},
-            "user_approved": {"type": "boolean", "description": "Set to true ONLY after the user has explicitly granted permission to install global .env protection hooks."},
-            "hook_agent": {"type": "string", "description": "Optional comma-separated agent names for install_env_hook (default: 'all')."},
-            "hook_mode": {"type": "string", "enum": ["deny", "ask"], "description": "Hook behavior when a tool accesses .env: 'deny' or 'ask'."},
-        },
-        "additionalProperties": False,
-    },
-}
-
-
-def _resolve_cli():
-    for local_name in ("~/.local/bin/agent-lockdown", "~/.local/bin/asa"):
-        home_local = os.path.expanduser(local_name)
-        if os.path.isfile(home_local) and os.access(home_local, os.X_OK):
-            return [home_local]
-    for bin_name in ("agent-lockdown", "asa", "agent-security-audit"):
-        found = shutil.which(bin_name)
-        if found:
-            return [found]
-    return [sys.executable, "-m", "agent_lockdown"]
-
-
-def _is_sensitive_env_path(raw_path: str, *, from_command: bool = False) -> bool:
-    if not raw_path or not isinstance(raw_path, str):
-        return False
-    cleaned = raw_path.strip().strip("\'\\"`();,|&<>")
-    if not cleaned:
-        return False
-    low_full = cleaned.replace("\\\\", "/").lower()
-    if from_command and low_full in CODE_ENV_IDENTIFIERS:
-        return False
-    base = os.path.basename(low_full.rstrip("/"))
-    if not base or any(base.endswith(ext) for ext in SAFE_ENV_SUFFIXES):
-        return False
-    if base in (".env", ".env*", "*.env", ".env.*") or base.startswith(".env."):
-        return True
-    if base.endswith(".env"):
-        if from_command and "/" not in low_full and not base.startswith(
-            ("secrets.", "secret.", "prod.", "production.", "local.", "dev.", "staging.", "credentials.", "auth.", "app.", "docker.")
-        ):
-            return False
-        return True
-    return False
-
-
-def _check_hermes_tool_args(tool_name: str, args) -> str | None:
-    if not isinstance(args, dict):
-        return None
-    for k in ("file_path", "path", "filePath", "Path", "target_file", "file", "glob", "pattern"):
-        val = args.get(k)
-        if isinstance(val, str) and _is_sensitive_env_path(val):
-            return "%s (%s=%s)" % (tool_name or "tool", k, val)
-    for k in ("command", "CommandLine", "cmd", "script", "code"):
-        val = args.get(k)
-        if isinstance(val, str):
-            for seg in re.split(r"(?:&&|\\|\\||;|\\n)", val):
-                seg_str = seg.strip()
-                if not seg_str or _SAFE_GIT_CMD_RE.match(seg_str):
-                    continue
-                for m in _ENV_TOKEN_RE.finditer(seg_str):
-                    tok = m.group(1)
-                    if _is_sensitive_env_path(tok, from_command=True):
-                        return "%s (%s references %s)" % (tool_name or "shell", k, tok)
-    return None
-
-
-def _on_pre_tool_call(tool_name: str = "", args=None, **_kwargs):
-    if os.environ.get("ASA_ENV_GUARD_DISABLE", "").lower() in ("1", "true", "yes", "on"):
-        return None
-    hit = _check_hermes_tool_args(tool_name, args)
-    if not hit:
-        return None
-    msg = (
-        "agent-lockdown (asa-env-guard): blocked access to secret .env file via %s. "
-        "Use .env.example for templates." % hit
-    )
-    if os.environ.get("ASA_ENV_GUARD_MODE", "").lower() == "ask":
-        return {"action": "approve", "message": msg, "rule_key": "asa_env_guard"}
-    return {"action": "block", "message": msg}
-
-
-def _handler(args, **_kwargs):
-    if args.get("install_skill"):
-        cmd = _resolve_cli() + ["--install-skill"]
-        try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        except Exception as exc:  # noqa: BLE001
-            return json.dumps({"ok": False, "error": "skill install failed: %s" % exc})
-        return json.dumps({"ok": proc.returncode == 0, "exit_code": proc.returncode, "output": (proc.stdout or "").strip(), "stderr": (proc.stderr or "").strip()})
-
-    if args.get("install_env_hook"):
-        hook_mode = args.get("hook_mode") or "deny"
-        if hook_mode not in VALID_HOOK_MODES:
-            return json.dumps({"ok": False, "error": "invalid hook_mode %r; expected \'deny\' or \'ask\'" % hook_mode})
-        hook_agent = args.get("hook_agent") or "all"
-        if not args.get("user_approved"):
-            cmd = _resolve_cli() + ["--install-env-hook", "--dry-run", "--hook-mode", hook_mode, "--hook-agent", hook_agent]
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            return json.dumps({
-                "ok": False,
-                "needs_user_permission": True,
-                "error": "User permission is required before modifying global agent hook configs. Show the planned paths to the user, ask for confirmation, and call again with user_approved=true.",
-                "planned_changes": (proc.stdout or "").strip(),
-            })
-        cmd = _resolve_cli() + ["--install-env-hook", "--yes", "--hook-mode", hook_mode, "--hook-agent", hook_agent]
-        try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        except Exception as exc:  # noqa: BLE001
-            return json.dumps({"ok": False, "error": "hook install failed: %s" % exc})
-        return json.dumps({"ok": proc.returncode == 0, "exit_code": proc.returncode, "output": (proc.stdout or "").strip(), "stderr": (proc.stderr or "").strip()})
-
-    layer = args.get("layer") or ""
-    if layer and layer not in VALID_LAYERS:
-        return json.dumps({"ok": False, "error": "invalid layer %r; expected one of: %s" % (layer, ", ".join(sorted(VALID_LAYERS)))})
-
-    root = os.path.abspath(os.path.expanduser(args.get("root") or os.getcwd()))
-    cmd = _resolve_cli() + ["--root", root, "--format", "json"]
-    if args.get("agents_only"):
-        cmd.append("--agents-only")
-    elif layer:
-        cmd += ["--layer", layer]
-    if args.get("quick"):
-        cmd.append("--quick")
-    if args.get("offline"):
-        cmd.append("--offline")
-    if args.get("redact_paths"):
-        cmd.append("--redact-paths")
-
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
-    except Exception as exc:  # noqa: BLE001
-        return json.dumps({"ok": False, "error": "audit failed to start: %s" % exc})
-
-    try:
-        payload = json.loads(proc.stdout or "{}")
-    except Exception:  # noqa: BLE001
-        return json.dumps({"ok": False, "error": "audit produced no JSON", "stderr": (proc.stderr or "")[-800:]})
-
-    payload["ok"] = "findings" in payload
-    payload["exit_code"] = proc.returncode
-    return json.dumps(payload)
-
-
-def register(ctx):
-    ctx.register_tool(name=TOOL, toolset="security", schema=SCHEMA, handler=_handler, description=SCHEMA["description"])
-    if hasattr(ctx, "register_hook"):
-        ctx.register_hook("pre_tool_call", _on_pre_tool_call)
-'''
 
 
 def install_env_hooks(
@@ -1235,51 +1010,6 @@ def uninstall_env_hooks(
     return removed
 
 
-SKILL_MARKDOWN_CONTENT = """---
-name: agent-lockdown
-description: >-
-  Audit a Linux/macOS computer and all installed AI coding agents for leaked API keys,
-  malicious startup hooks, risky MCP servers, prompt injection, hidden Unicode smuggling,
-  and supply-chain backdoors — and install or manage the global .env secret-file protection
-  hook across all agents (Claude, Antigravity, Gemini, Cursor, Codex, Hermes, Pi, OpenCode,
-  GitHub Copilot, Grok, Kiro). Use whenever the user asks to run a security check, audit AI
-  agents, check for leaked keys, lock down .env files, or install/remove agent security hooks.
----
-
-# Agent Lockdown Skill (`agent-lockdown` / `asa`)
-
-You have access to `agent-lockdown` (also callable as `asa`), a zero-dependency, read-only security auditor and global `.env` secret-file protection hook manager for AI coding agents.
-
-## 1. Golden Rules
-
-1. **Do the terminal work for the user:** Run the commands yourself and summarize the results in friendly, plain English (ELI5).
-2. **Audit is 100% read-only:** Always run the read-only scan first.
-3. **Never print raw secrets:** `agent-lockdown` masks every secret match (`sk-or-…(73 chars)`). Never open `.env` files or print unmasked credentials into chat.
-4. **Always ask permission before installing or removing hooks:** Never pass `--yes` to `--install-env-hook` or `--uninstall-env-hook` until you have shown the user which AI apps will be updated and the user has explicitly said **"Yes"**.
-
-## 2. How to Run a Security Audit
-
-```bash
-# Fast 2-second AI-agent audit (hooks, MCP servers, leaked keys in chat/git history, rule files, supply-chain):
-agent-lockdown --agents-only --format json --redact-paths
-
-# Full 16-layer host + AI-agent audit (skipping slow virtualenv / deep git scans):
-agent-lockdown --quick --format json --redact-paths
-```
-
-## 3. How to Lock Down `.env` Files Globally (Permission-Gated)
-
-1. Preview affected agents (read-only): `agent-lockdown --install-env-hook --dry-run`
-2. Ask the user for permission (offering `deny` to block automatically or `ask` to prompt every time).
-3. Only after user confirmation: `agent-lockdown --install-env-hook --yes` (or `--hook-mode ask --yes`).
-4. Verify: `agent-lockdown --layer agent-config --show-ok`
-
-## 4. How to Remove the Global `.env` Lock (If Requested)
-
-Ask for confirmation, then run: `agent-lockdown --uninstall-env-hook --yes`
-"""
-
-
 def install_agent_skills(home: str, *, dry_run: bool = False) -> list[tuple[str, str]]:
     """Install the agent-lockdown SKILL.md into ~/.agents/skills and every detected agent's skills directory."""
     skill_roots = [
@@ -1294,14 +1024,11 @@ def install_agent_skills(home: str, *, dry_run: bool = False) -> list[tuple[str,
         ("opencode", (".config", "opencode", "skills")),
         ("kiro", (".kiro", "skills")),
     ]
+    bundled_skill = _bundled_path("SKILL.md")
     repo_skill = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "skills", "agent-lockdown", "SKILL.md"))
-    content = SKILL_MARKDOWN_CONTENT
-    if os.path.isfile(repo_skill):
-        try:
-            with open(repo_skill, "r", encoding="utf-8", errors="replace") as fh:
-                content = fh.read()
-        except OSError:
-            pass
+    src_skill = bundled_skill if os.path.isfile(bundled_skill) else repo_skill
+    with open(src_skill, "r", encoding="utf-8", errors="replace") as fh:
+        content = fh.read()
 
     installed: list[tuple[str, str]] = []
     for agent_name, rel_parts in skill_roots:

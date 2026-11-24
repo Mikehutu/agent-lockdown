@@ -73,12 +73,17 @@ You should **never** blindly trust a security tool or let an AI install a global
    3. Is it safe to let my desktop AI agent run it?
    ```
    - Because the entire tool is ~2,000 lines of plain Python across 4 files, any AI can read every single line in one pass and verify it for you.
-4. **100% Reversible (1-Command Uninstall Anytime):**
+4. **Exact network behavior (transparent `cve.now` lookup):**
+   - During a full host audit, Layer 12 (`cve-now`) queries the public **[cve.now](https://cve.now)** feed (`https://cve.now/stack?p=...`) with **only** your installed public PyPI/npm package names and version numbers (e.g. `pypi:requests@2.32.3`) to check for live CVEs—it never sends file contents, paths, hostnames, or secrets.
+   - Running `agent-lockdown --agents-only` or `agent-lockdown --offline` makes **zero network calls** at all.
+5. **Honest security scope (guardrail, not an OS sandbox):**
+   - A `PreToolUse` `.env` hook is a fast, deterministic seatbelt that stops accidental `.env` reads and standard prompt injections (`Read`, `cat .env`, `grep ... .env`, `open('.env')`). It is **not** a replacement for OS-level sandboxing or API provider spend limits—a determined attacker with unrestricted shell access can still obfuscate shell commands. Use both!
+6. **100% Reversible (1-Command Uninstall Anytime):**
    - Nothing is hidden or permanent. You (or your AI agent) can remove the `.env` lock anytime with:
      ```bash
      agent-lockdown --uninstall-env-hook --yes
      ```
-5. **1-second terminal proof (for developers):**
+7. **1-second terminal proof (for developers):**
    ```bash
    # Verify every network call in the entire repo (only cve.now in core.py; zero in hooks.py):
    grep -rnE "urllib|http|socket|requests|fetch" src/ hermes/

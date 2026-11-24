@@ -5,6 +5,8 @@ new agent tool is a one-line change, and packagers can diff it easily.
 """
 
 # Format: package -> (minimum safe version, CVE id, description)
+# Note: For live up-to-date CVE coverage across all installed packages, layer 12 (`cve-now`)
+# queries the public https://cve.now feed (unless --offline or --agents-only is set).
 CVE_DB_PY = {
     "starlette": ("1.0.1", "CVE-2026-48710", "BadHost: Host header injection bypasses path-based auth"),
     "requests": ("2.33.0", "CVE-2026-25645", "HTTP header injection via proxy bypass"),
@@ -18,6 +20,12 @@ CVE_DB_PY = {
     "flask": ("3.1.0", "CVE-2025-48449", "Open redirect via malformed URL"),
     "aiohttp": ("3.11.14", "CVE-2025-48488", "HTTP request smuggling"),
     "httpx": ("0.28.1", "CVE-2025-48492", "Proxy auth header leak"),
+    "jinja2": ("3.1.6", "CVE-2025-27516", "Sandbox breakout via attr filter"),
+    "werkzeug": ("3.0.6", "CVE-2024-49766", "Path traversal via safe_join on Windows"),
+    "tornado": ("6.4.2", "CVE-2024-52804", "Cookie parsing DoS"),
+    "fastapi": ("0.115.0", "CVE-2024-24762", "ReDoS via python-multipart form boundary"),
+    "langchain-core": ("0.3.28", "CVE-2024-46946", "Template / deserialization injection"),
+    "gradio": ("5.6.0", "CVE-2024-47872", "Arbitrary file read / SSRF"),
 }
 
 CVE_DB_NPM = {
@@ -25,6 +33,9 @@ CVE_DB_NPM = {
     "next": ("15.3.2", "CVE-2025-48510", "SSRF in image optimization"),
     "axios": ("1.9.0", "CVE-2025-48515", "SSRF via absolute URL parsing"),
     "lodash": ("4.17.21", "CVE-2025-48520", "Prototype pollution in mergeWith"),
+    "vite": ("6.2.4", "CVE-2025-31125", "Dev server fs.deny bypass"),
+    "undici": ("6.21.1", "CVE-2025-22150", "Insufficiently random boundary values"),
+    "tar": ("7.4.3", "CVE-2024-28863", "Denial of service via crafted archive"),
 }
 
 # Agent tools to audit. Presence is checked, never assumed. A tool that is not

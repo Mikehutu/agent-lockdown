@@ -1,5 +1,5 @@
 name: agent-lockdown
-version: 0.5.0
+version: 0.6.0
 description: Read-only security audit of the host and every AI coding agent installed on it, with pre_tool_call .env protection hook and permission-gated global hook installer.
 author: Mike Huttunen
 license: MIT

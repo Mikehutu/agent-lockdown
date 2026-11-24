@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 from . import core, data, hooks as hook_mod
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 COLORS = {
     "vuln": "\033[0;31m",
