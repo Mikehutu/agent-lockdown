@@ -31,7 +31,7 @@ CVE_DB_NPM = {
 # listed is invisible to layers 14-16, so adding one here is the extension point.
 AGENT_ROOTS = (
     ".claude", ".claude.json", ".codex", ".copilot", ".cursor", ".cursor-server",
-    ".gemini", ".pi", ".opencode", ".kiro", ".grok", ".openfang", ".agents",
+    ".gemini", ".pi", ".opencode", ".config/opencode", ".kiro", ".grok", ".openfang", ".agents",
     ".archon", ".aitk", ".aider", ".continue", ".cline", ".windsurf", ".zed",
     ".qwen", ".goose", ".amp", ".crush", ".factory", ".trae", ".roo", ".augment",
     ".tabnine", ".sourcegraph", ".hermes", ".bolt", ".devin",
@@ -40,8 +40,8 @@ AGENT_ROOTS = (
 # Config file names searched under each agent root (depth 3).
 AGENT_CONFIG_NAMES = (
     "settings.json", "settings.local.json", "config.toml", "config.json",
-    "mcp.json", "mcp-config.json", "mcp_config.json", "*.mcp.json",
-    "hooks.json",
+    "config.yaml", "opencode.json", "mcp.json", "mcp-config.json",
+    "mcp_config.json", "*.mcp.json", "hooks.json",
 )
 
 # Repo-level agent config globs, relative to the scanned root.

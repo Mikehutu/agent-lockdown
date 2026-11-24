@@ -734,14 +734,26 @@ def _install_hermes_plugin(home: str, dry_run: bool = False) -> list[str]:
                 content = fh.read()
             new_content = content.replace("    - agent-security-audit\n", "    - agent-lockdown\n")
             if "    - agent-lockdown\n" not in new_content:
-                m = re.search(r"(^plugins:\s*\n\s*enabled:\s*\n)", new_content, re.M)
-                if m:
-                    insert_pos = m.end()
+                m_empty = re.search(r"(^plugins:\s*\n\s*enabled:\s*)\[\s*\]\s*$", new_content, re.M)
+                m_list = re.search(r"(^plugins:\s*\n\s*enabled:\s*\n)", new_content, re.M)
+                if m_empty:
+                    new_content = (
+                        new_content[:m_empty.start()]
+                        + m_empty.group(1)
+                        + "\n    - agent-lockdown"
+                        + new_content[m_empty.end():]
+                    )
+                elif m_list:
+                    insert_pos = m_list.end()
                     new_content = (
                         new_content[:insert_pos]
                         + "    - agent-lockdown\n"
                         + new_content[insert_pos:]
                     )
+                elif not re.search(r"^plugins:\s*", new_content, re.M):
+                    if new_content and not new_content.endswith("\n"):
+                        new_content += "\n"
+                    new_content += "plugins:\n  enabled:\n    - agent-lockdown\n"
             if new_content != content:
                 if not dry_run:
                     with open(cfg_yaml, "w", encoding="utf-8") as fh:

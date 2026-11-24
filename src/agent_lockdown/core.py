@@ -909,12 +909,63 @@ def _strip_jsonc(text):
     return "".join(out)
 
 
+def _parse_simple_yaml_config(raw: str) -> dict:
+    """Stdlib-only extractor for top-level `hooks:` and `mcp_servers:` in YAML configs (e.g. Hermes)."""
+    out: dict = {"hooks": {}, "mcp_servers": {}}
+    section = ""
+    subkey = ""
+    in_args = False
+    for line in raw.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        stripped = line.strip()
+        if indent == 0:
+            if stripped.startswith("hooks:"):
+                section, subkey, in_args = "hooks", "", False
+            elif stripped.startswith("mcp_servers:"):
+                section, subkey, in_args = "mcp_servers", "", False
+            else:
+                section, subkey, in_args = "", "", False
+            continue
+        if not section:
+            continue
+        if section == "hooks":
+            if indent == 2 and stripped.endswith(":") and not stripped.startswith("-"):
+                subkey = stripped[:-1].strip()
+                out["hooks"].setdefault(subkey, [])
+            elif subkey and "command:" in stripped:
+                cmd = stripped.split("command:", 1)[1].strip().strip("'\"")
+                if cmd:
+                    out["hooks"][subkey].append({"command": cmd})
+        elif section == "mcp_servers":
+            if indent == 2 and stripped.endswith(":") and not stripped.startswith("-"):
+                subkey = stripped[:-1].strip()
+                out["mcp_servers"].setdefault(subkey, {})
+                in_args = False
+            elif subkey:
+                if indent == 4 and stripped.startswith("args:"):
+                    in_args = True
+                    out["mcp_servers"][subkey].setdefault("args", [])
+                elif in_args and indent >= 6 and stripped.startswith("- "):
+                    out["mcp_servers"][subkey]["args"].append(stripped[2:].strip().strip("'\""))
+                elif indent == 4 and ":" in stripped:
+                    in_args = False
+                    k, v = stripped.split(":", 1)
+                    k, v = k.strip(), v.strip().strip("'\"")
+                    if k in ("command", "url", "serverUrl") and v:
+                        out["mcp_servers"][subkey][k] = v
+    return out
+
+
 def _parse_config(path):
     """Return (hooks, mcp_servers, deny_env) or None when unparseable."""
     raw = read_text(path)
     if not raw or not raw.strip():
         return {}, {}, False
-    if path.endswith(".toml"):
+    if path.endswith((".yaml", ".yml")):
+        data_ = _parse_simple_yaml_config(raw)
+    elif path.endswith(".toml"):
         data_ = {}
         try:
             import tomllib  # py3.11+
@@ -943,7 +994,7 @@ def _parse_config(path):
                         merged_events.setdefault(ev_name, []).extend(ev_list)
         if merged_events:
             hooks = merged_events
-    servers = data_.get("mcpServers") or data_.get("mcp_servers") or data_.get("servers") or {}
+    servers = data_.get("mcpServers") or data_.get("mcp_servers") or data_.get("servers") or data_.get("mcp") or {}
     deny = ((data_.get("permissions") or {}).get("deny") or [])
     has_env_deny = any(".env" in str(x) for x in deny)
     if not has_env_deny and isinstance(hooks, dict):
@@ -1011,9 +1062,13 @@ def layer_agent_config(rep: Report, ctx) -> None:
             for name, spec in servers.items():
                 if not isinstance(spec, dict):
                     continue
-                cmd = str(spec.get("command") or "")
+                raw_cmd = spec.get("command")
+                if isinstance(raw_cmd, list):
+                    cmd = " ".join(str(x) for x in raw_cmd)
+                else:
+                    cmd = str(raw_cmd or "")
                 args = " ".join(str(a) for a in (spec.get("args") or []))
-                url = str(spec.get("url") or spec.get("serverUrl") or "")
+                url = str(spec.get("url") or spec.get("serverUrl") or spec.get("httpUrl") or "")
                 full = (cmd + " " + args).strip()
                 if not full and not url:
                     continue
@@ -1094,7 +1149,7 @@ def layer_agent_history(rep: Report, ctx) -> None:
         return
     rep.layers_run += 1
 
-    exts = (".jsonl", ".json", ".md", ".txt", ".db", ".log")
+    exts = (".jsonl", ".json", ".md", ".txt", ".db", ".db-wal", ".sqlite", ".sqlite3", ".sqlite-wal", ".log")
     hits = 0
     scanned = 0
     for root in data.AGENT_ROOTS:
